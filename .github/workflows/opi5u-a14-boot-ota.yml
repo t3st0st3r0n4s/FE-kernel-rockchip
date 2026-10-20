@@ -135,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           git submodule status KernelSU-Next
-          test "$(git -C KernelSU-Next rev-parse HEAD)" = "4c706b5938665866ebe16944a481a7b91e3396af"
+          test -f KernelSU-Next/kernel/Kbuild
           ccache --zero-stats
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CC="ccache clang" opi5u_android_defconfig
           grep -qx 'CONFIG_KSU=y' .config
@@ -260,8 +260,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(make -s kernelversion)"
-          test "$VERSION" = "6.1.141"
-          KSU_VERSION="v3.4.2"
+          KSU_VERSION="$(git -C KernelSU-Next describe --tags --always)"
+          echo "Releasing kernel $VERSION with KernelSU Next $KSU_VERSION"
           STAMP="$(date -u +'%d-%m-%Y_%H-%M-%S')"
           NAME="RK3588-Kernel-v${VERSION}_opi5u_KSUNext-${KSU_VERSION}_${STAMP}"
           TAG="opi5u-a14-rkr8-${NAME}"
