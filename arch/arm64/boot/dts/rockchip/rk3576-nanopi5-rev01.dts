@@ -217,6 +217,7 @@
 		enable-gpios = <&gpio3 RK_PC7 GPIO_ACTIVE_HIGH>;
 		host-wake-gpios = <&gpio0 RK_PB1 GPIO_ACTIVE_HIGH>;
 		device-wake-gpios = <&gpio3 RK_PD0 GPIO_ACTIVE_HIGH>;
+		cts-detect-wait-ms = <200>;
 	};
 };
 
@@ -224,16 +225,22 @@
 	status = "disabled";
 };
 
+&vop {
+	disable-win-move;
+};
+
 &vp0 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0 |
 				1 << ROCKCHIP_VOP2_ESMART2)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART0>;
+	cursor-win-id = <ROCKCHIP_VOP2_ESMART2>;
 };
 
 &vp1 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER1 | 1 << ROCKCHIP_VOP2_ESMART1 |
 				1 << ROCKCHIP_VOP2_ESMART3)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART1>;
+	cursor-win-id = <ROCKCHIP_VOP2_ESMART3>;
 };
 
 &vp2 {

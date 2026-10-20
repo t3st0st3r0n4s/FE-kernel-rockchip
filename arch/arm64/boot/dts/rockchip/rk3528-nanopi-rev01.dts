@@ -32,7 +32,6 @@
 	};
 
 	adc_keys: adc-keys {
-		status = "okay";
 		compatible = "adc-keys";
 		io-channels = <&saradc 0>;
 		io-channel-names = "buttons";
@@ -47,7 +46,6 @@
 	};
 
 	adc2_keys: adc2-keys {
-		status = "okay";
 		compatible = "adc-keys";
 		io-channels = <&saradc 1>;
 		io-channel-names = "buttons";
@@ -63,8 +61,8 @@
 };
 
 &mach {
-    hwrev = <1>;
-    model = "NanoPi Zero2";
+	hwrev = <1>;
+	model = "NanoPi Zero2";
 };
 
 &gmac1 {
@@ -160,4 +158,10 @@
 			rockchip,pins = <4 RK_PC1 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
+};
+
+&usbdrd_dwc3 {
+	maximum-speed = "high-speed";
+	phys = <&u2phy_otg>;
+	phy-names = "usb2-phy";
 };
