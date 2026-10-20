@@ -241,6 +241,18 @@ jobs:
             grep -qx 'pre-device=opi'
           sha256sum cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
 
+      - name: Retain reusable cloud build artifacts
+        if: ${{ inputs.image_run_id == '' || inputs.otatools_url != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: opi5u-a14-ksunext-cloud-unqualified
+          path: |
+            cloud-output/Image
+            cloud-output/boot.img
+            cloud-output/opi5u-a14-boot-only.zip
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Publish signed OTA in established single-archive release format
         if: ${{ inputs.otatools_url != '' }}
         shell: bash
@@ -276,15 +288,3 @@ jobs:
 
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,name,isPrerelease,assets,url
-
-      - name: Retain unqualified cloud build artifacts
-        if: ${{ inputs.image_run_id == '' || inputs.otatools_url != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: opi5u-a14-ksunext-cloud-unqualified
-          path: |
-            cloud-output/Image
-            cloud-output/boot.img
-            cloud-output/opi5u-a14-boot-only.zip
-          if-no-files-found: error
-          retention-days: 7
