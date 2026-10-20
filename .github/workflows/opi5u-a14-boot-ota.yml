@@ -21,11 +21,11 @@ on:
       otatools_url:
         type: string
         required: false
-        default: ''
+        default: https://github.com/t3st0st3r0n4s/FE-kernel-rockchip/releases/download/opi5u-a14-otatools-v1/otatools.zip
       otatools_sha256:
         type: string
         required: false
-        default: ''
+        default: c30aa81a4abfa14e4f18c81e50036351525e3757666fe2d2d73795cbbe449f1c
   workflow_dispatch:
     inputs:
       target_files_tag:
@@ -37,13 +37,13 @@ on:
         required: false
         default: ''
       otatools_url:
-        description: Official Android 14 CI otatools.zip URL (omit for kernel-only build)
+        description: Pinned A14 otatools release (leave default for full build and OTA)
         required: false
-        default: ''
+        default: https://github.com/t3st0st3r0n4s/FE-kernel-rockchip/releases/download/opi5u-a14-otatools-v1/otatools.zip
       otatools_sha256:
-        description: SHA256 for official otatools.zip (required with URL)
+        description: Checksum of pinned A14 otatools.zip
         required: false
-        default: ''
+        default: c30aa81a4abfa14e4f18c81e50036351525e3757666fe2d2d73795cbbe449f1c
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -57,7 +57,7 @@ jobs:
   build:
     runs-on: ubuntu-26.04
     permissions:
-      contents: read
+      contents: write
       actions: read
     steps:
       - name: Check out canonical kernel and pinned KernelSU Next
@@ -240,6 +240,42 @@ jobs:
           unzip -p cloud-output/opi5u-a14-boot-only.zip META-INF/com/android/metadata |
             grep -qx 'pre-device=opi'
           sha256sum cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
+
+      - name: Publish signed OTA in established single-archive release format
+        if: ${{ inputs.otatools_url != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(make -s kernelversion)"
+          test "$VERSION" = "6.1.141"
+          KSU_VERSION="v3.4.2"
+          STAMP="$(date -u +'%d-%m-%Y_%H-%M-%S')"
+          NAME="RK3588-Kernel-v${VERSION}_opi5u_KSUNext-${KSU_VERSION}_${STAMP}"
+          TAG="opi5u-a14-rkr8-${NAME}"
+          ZIP="${NAME}.zip"
+          ARCHIVE="${NAME}.tar.xz"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; will not overwrite" >&2
+            exit 1
+          fi
+
+          mkdir -p package
+          cp cloud-output/opi5u-a14-boot-only.zip "package/$ZIP"
+          OTA_SHA="$(sha256sum "package/$ZIP" | cut -d' ' -f1)"
+          tar -C package -cf - "$ZIP" | xz -0 -T1 > "$ARCHIVE"
+          test "$(tar -tf "$ARCHIVE")" = "$ZIP"
+          test "$(tar -xOf "$ARCHIVE" "$ZIP" | sha256sum | cut -d' ' -f1)" = "$OTA_SHA"
+
+          gh release create "$TAG" "$ARCHIVE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$(git rev-parse HEAD)" \
+            --title "RK3588 Kernel $VERSION | KernelSU Next $KSU_VERSION | opi5u A14" \
+            --notes "Orange Pi 5 Ultra / Android 14 rkr8. HOST PASS; BOARD validation pending. Extract the .tar.xz for the signed OTA ZIP." \
+            --prerelease
+
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isPrerelease,assets,url
 
       - name: Retain unqualified cloud build artifacts
         if: ${{ inputs.image_run_id == '' || inputs.otatools_url != '' }}
