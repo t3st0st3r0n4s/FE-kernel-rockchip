@@ -6,12 +6,20 @@ on:
       bootstrap_tag:
         required: true
         type: string
+      target_files_tag:
+        required: false
+        type: string
+        default: opi5u-a14-rkr8-target-files-v1
   workflow_dispatch:
     inputs:
       bootstrap_tag:
-        description: GitHub prerelease containing host-proven A14 build inputs
+        description: Temporary OTA-tool bundle tag (pending independent AOSP tool provisioning)
         required: true
         default: opi5u-a14-cloud-bootstrap
+      target_files_tag:
+        description: Board-qualified target-files prerelease
+        required: true
+        default: opi5u-a14-rkr8-target-files-v1
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -30,13 +38,22 @@ jobs:
           persist-credentials: false
       - name: Install kernel build prerequisites
         run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev
-      - name: Fetch unchanged host-proven A14 inputs
+      - name: Fetch pinned BOARD-qualified A14 target-files baseline
+        env:
+          TARGET_FILES_TAG: ${{ inputs.target_files_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p cloud-inputs
+          gh release download "$TARGET_FILES_TAG" --repo "$GITHUB_REPOSITORY" --dir cloud-inputs \
+            -p opi5u-a14-baseline.zip
+          echo '8120b75a1ed7461c42a9b227e5ff63a7ce5e8d21a7ad764cb0a0ee0fbf054367  cloud-inputs/opi5u-a14-baseline.zip' | sha256sum --check
+          unzip -tq cloud-inputs/opi5u-a14-baseline.zip
+      - name: Fetch temporary OTA build-tool inputs (not yet host-independent)
         env:
           BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag }}
         run: |
-          mkdir -p cloud-inputs
+          set -euo pipefail
           gh release download "$BOOTSTRAP_TAG" --repo "$GITHUB_REPOSITORY" --dir cloud-inputs \
-            -p opi5u-a14-baseline.zip \
             -p opi5u-a14-hosttools.tar.gz \
             -p opi5u-a14-clang.tar.gz
           tar -xzf cloud-inputs/opi5u-a14-hosttools.tar.gz
