@@ -1,0 +1,83 @@
+name: OPi5U A14 KernelSU Boot OTA (verification)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_tag:
+        description: GitHub prerelease containing host-proven A14 build inputs
+        required: true
+        default: opi5u-a14-cloud-bootstrap
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out pinned kernel source and KernelSU Next
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install kernel build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev
+      - name: Fetch unchanged host-proven A14 inputs
+        env:
+          BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag }}
+        run: |
+          mkdir -p cloud-inputs
+          gh release download "$BOOTSTRAP_TAG" --repo "$GITHUB_REPOSITORY" --dir cloud-inputs \
+            -p opi5u-a14-baseline.zip \
+            -p opi5u-a14-hosttools.tar.gz \
+            -p opi5u-a14-clang.tar.gz
+          tar -xzf cloud-inputs/opi5u-a14-hosttools.tar.gz
+          tar -xzf cloud-inputs/opi5u-a14-clang.tar.gz
+      - name: Compile built-in KernelSU with the proven Clang toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$GITHUB_WORKSPACE/prebuilts/clang/host/linux-x86/clang-r487747c/bin:$PATH"
+          clang --version | head -2
+          git submodule status KernelSU-Next
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 opi5u_android_defconfig
+          grep -qx 'CONFIG_KSU=y' .config
+          make -j4 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 Image
+          stat -c '%n | %s bytes' arch/arm64/boot/Image
+      - name: Reproduce reference boot and package new kernel boot image
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$GITHUB_WORKSPACE/out/host/linux-x86/bin:$PATH"
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/out/host/linux-x86/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          mkdir -p cloud-output
+          python3 ci/opi5u-a14/repack_boot.py \
+            --baseline cloud-inputs/opi5u-a14-baseline.zip \
+            --kernel arch/arm64/boot/Image \
+            --mkbootimg out/host/linux-x86/bin/mkbootimg \
+            --output-boot cloud-output/boot.img \
+            --output-target-files cloud-output/target-files.zip
+      - name: Generate signed native boot-only A/B OTA
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$GITHUB_WORKSPACE/out/host/linux-x86/bin:$PATH"
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/out/host/linux-x86/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          ota_from_target_files -v --partial boot \
+            cloud-output/target-files.zip cloud-output/opi5u-a14-boot-only.zip
+          unzip -tq cloud-output/opi5u-a14-boot-only.zip
+          unzip -p cloud-output/opi5u-a14-boot-only.zip META-INF/com/android/metadata |
+            grep -qx 'ota-type=AB'
+          unzip -p cloud-output/opi5u-a14-boot-only.zip META-INF/com/android/metadata |
+            grep -qx 'pre-device=opi'
+          sha256sum cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
+      - name: Retain unqualified OTA for host/board verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: opi5u-a14-ksunext-boot-ota-unqualified
+          path: |
+            cloud-output/boot.img
+            cloud-output/opi5u-a14-boot-only.zip
+          retention-days: 7
