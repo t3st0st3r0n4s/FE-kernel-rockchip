@@ -1,28 +1,38 @@
-name: OPi5U A14 KernelSU Boot OTA (verification)
+name: OPi5U A14 KernelSU Cloud Build
 
 on:
   workflow_call:
     inputs:
-      bootstrap_tag:
-        required: true
-        type: string
       target_files_tag:
-        required: false
         type: string
+        required: false
         default: opi5u-a14-rkr8-target-files-v1
+      otatools_url:
+        type: string
+        required: false
+        default: ''
+      otatools_sha256:
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
     inputs:
-      bootstrap_tag:
-        description: Temporary OTA-tool bundle tag (pending independent AOSP tool provisioning)
-        required: true
-        default: opi5u-a14-cloud-bootstrap
       target_files_tag:
-        description: Board-qualified target-files prerelease
+        description: Pinned A14 target-files release
         required: true
         default: opi5u-a14-rkr8-target-files-v1
+      otatools_url:
+        description: Official Android 14 CI otatools.zip URL (omit for kernel-only build)
+        required: false
+        default: ''
+      otatools_sha256:
+        description: SHA256 for official otatools.zip (required with URL)
+        required: false
+        default: ''
 
 env:
   GH_TOKEN: ${{ github.token }}
+  CLANG_SOURCE_COMMIT: 084bfeee4305d1572309b4ac279a4125f6c7fa5e
 
 jobs:
   build:
@@ -30,15 +40,47 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Check out pinned kernel source and KernelSU Next
+      - name: Check out canonical kernel and pinned KernelSU Next
         uses: actions/checkout@v4
         with:
           ref: feature/kernelsu-next
           submodules: recursive
           persist-credentials: false
+
       - name: Install kernel build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev
-      - name: Fetch pinned BOARD-qualified A14 target-files baseline
+        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev unzip curl
+
+      - name: Fetch official Android 14 Clang r487747c
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --filter=blob:none --sparse \
+            --branch android-14.0.0_r40 \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            aosp-clang
+          test "$(git -C aosp-clang rev-parse HEAD)" = "$CLANG_SOURCE_COMMIT"
+          git -C aosp-clang sparse-checkout set clang-r487747c
+          test -x aosp-clang/clang-r487747c/bin/clang
+          echo "$GITHUB_WORKSPACE/aosp-clang/clang-r487747c/bin" >> "$GITHUB_PATH"
+          aosp-clang/clang-r487747c/bin/clang --version | head -2
+
+      - name: Compile OPi5U Android 14 kernel with built-in KernelSU
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule status KernelSU-Next
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = "4c706b5938665866ebe16944a481a7b91e3396af"
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 opi5u_android_defconfig
+          grep -qx 'CONFIG_KSU=y' .config
+          make -j4 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 Image
+          test -s arch/arm64/boot/Image
+          mkdir -p cloud-output
+          cp arch/arm64/boot/Image cloud-output/Image
+          sha256sum cloud-output/Image
+
+      - name: Download pinned BOARD-qualified target-files
+        if: ${{ inputs.otatools_url != '' }}
+        shell: bash
         env:
           TARGET_FILES_TAG: ${{ inputs.target_files_tag }}
         run: |
@@ -48,46 +90,58 @@ jobs:
             -p opi5u-a14-baseline.zip
           echo '8120b75a1ed7461c42a9b227e5ff63a7ce5e8d21a7ad764cb0a0ee0fbf054367  cloud-inputs/opi5u-a14-baseline.zip' | sha256sum --check
           unzip -tq cloud-inputs/opi5u-a14-baseline.zip
-      - name: Fetch temporary OTA build-tool inputs (not yet host-independent)
+
+      - name: Install checksum-pinned official AOSP OTA tools
+        if: ${{ inputs.otatools_url != '' }}
+        shell: bash
         env:
-          BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag }}
+          OTA_TOOLS_URL: ${{ inputs.otatools_url }}
+          OTA_TOOLS_SHA256: ${{ inputs.otatools_sha256 }}
         run: |
           set -euo pipefail
-          gh release download "$BOOTSTRAP_TAG" --repo "$GITHUB_REPOSITORY" --dir cloud-inputs \
-            -p opi5u-a14-hosttools.tar.gz \
-            -p opi5u-a14-clang.tar.gz
-          tar -xzf cloud-inputs/opi5u-a14-hosttools.tar.gz
-          tar -xzf cloud-inputs/opi5u-a14-clang.tar.gz
-      - name: Compile built-in KernelSU with the proven Clang toolchain
+          [[ "$OTA_TOOLS_URL" == https://* ]]
+          [[ "$OTA_TOOLS_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
+          mkdir -p cloud-inputs otatools
+          curl --fail --location --retry 3 "$OTA_TOOLS_URL" --output cloud-inputs/otatools.zip
+          echo "$OTA_TOOLS_SHA256  cloud-inputs/otatools.zip" | sha256sum --check
+          unzip -q cloud-inputs/otatools.zip -d otatools
+          test -x otatools/bin/ota_from_target_files
+          test -x otatools/bin/mkbootimg
+          echo "$GITHUB_WORKSPACE/otatools/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/otatools/lib64" >> "$GITHUB_ENV"
+
+      - name: Fetch public AOSP Android 14 development signing keys
+        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$GITHUB_WORKSPACE/prebuilts/clang/host/linux-x86/clang-r487747c/bin:$PATH"
-          clang --version | head -2
-          git submodule status KernelSU-Next
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 opi5u_android_defconfig
-          grep -qx 'CONFIG_KSU=y' .config
-          make -j4 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 Image
-          stat -c '%n | %s bytes' arch/arm64/boot/Image
-      - name: Reproduce reference boot and package new kernel boot image
+          mkdir -p build/make/target/product/security
+          for extension in pk8 x509.pem; do
+            curl --fail --location --retry 3 \
+              "https://android.googlesource.com/platform/build/+/refs/tags/android-14.0.0_r40/target/product/security/testkey.$extension?format=TEXT" |
+              base64 --decode > "build/make/target/product/security/testkey.$extension"
+          done
+          openssl x509 -in build/make/target/product/security/testkey.x509.pem -noout -subject >/dev/null
+          openssl pkcs8 -inform DER -nocrypt \
+            -in build/make/target/product/security/testkey.pk8 >/dev/null
+
+      - name: Reproduce baseline boot and package updated Image
+        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$GITHUB_WORKSPACE/out/host/linux-x86/bin:$PATH"
-          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/out/host/linux-x86/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          mkdir -p cloud-output
           python3 ci/opi5u-a14/repack_boot.py \
             --baseline cloud-inputs/opi5u-a14-baseline.zip \
-            --kernel arch/arm64/boot/Image \
-            --mkbootimg out/host/linux-x86/bin/mkbootimg \
+            --kernel cloud-output/Image \
+            --mkbootimg otatools/bin/mkbootimg \
             --output-boot cloud-output/boot.img \
             --output-target-files cloud-output/target-files.zip
-      - name: Generate signed native boot-only A/B OTA
+
+      - name: Sign native partial A/B boot OTA
+        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$GITHUB_WORKSPACE/out/host/linux-x86/bin:$PATH"
-          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/out/host/linux-x86/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           ota_from_target_files -v --partial boot \
             cloud-output/target-files.zip cloud-output/opi5u-a14-boot-only.zip
           unzip -tq cloud-output/opi5u-a14-boot-only.zip
@@ -96,11 +150,14 @@ jobs:
           unzip -p cloud-output/opi5u-a14-boot-only.zip META-INF/com/android/metadata |
             grep -qx 'pre-device=opi'
           sha256sum cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
-      - name: Retain unqualified OTA for host/board verification
+
+      - name: Retain unqualified cloud build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: opi5u-a14-ksunext-boot-ota-unqualified
+          name: opi5u-a14-ksunext-cloud-unqualified
           path: |
+            cloud-output/Image
             cloud-output/boot.img
             cloud-output/opi5u-a14-boot-only.zip
+          if-no-files-found: error
           retention-days: 7
