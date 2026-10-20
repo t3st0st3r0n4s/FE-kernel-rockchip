@@ -1,27 +1,6 @@
 name: OPi5U A14 KernelSU Cloud Build
 
 on:
-  workflow_call:
-    secrets:
-      OPI5U_A14_OTA_PK8_B64:
-        description: Base64 of original A14 testkey.pk8 signing key
-        required: false
-      OPI5U_A14_OTA_CERT_B64:
-        description: Base64 of matching original A14 testkey.x509.pem
-        required: false
-    inputs:
-      target_files_tag:
-        type: string
-        required: false
-        default: opi5u-a14-rkr8-target-files-v1
-      otatools_url:
-        type: string
-        required: false
-        default: https://github.com/t3st0st3r0n4s/FE-kernel-rockchip/releases/download/opi5u-a14-otatools-v1/otatools.zip
-      otatools_sha256:
-        type: string
-        required: false
-        default: c30aa81a4abfa14e4f18c81e50036351525e3757666fe2d2d73795cbbe449f1c
   workflow_dispatch:
     inputs:
       target_files_tag:
@@ -55,7 +34,6 @@ jobs:
       - name: Check out canonical kernel and pinned KernelSU Next
         uses: actions/checkout@v4
         with:
-          ref: feature/kernelsu-next
           submodules: recursive
           persist-credentials: false
 
