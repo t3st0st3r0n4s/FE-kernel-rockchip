@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time host upload inputs for GitHub Actions. Does NOT build or flash.
 set -euo pipefail
-TOP="\${1:-$HOME/android/A14}"
+TOP="${1:-$HOME/android/A14}"
 TOP="$(realpath "$TOP")"
 cd "$TOP"
 DEST="$TOP/out/ota-kernel/cloud-inputs"
@@ -31,7 +31,7 @@ HOST_PATHS+=(
   build/make/target/product/security/testkey.pk8
   build/make/target/product/security/testkey.x509.pem
 )
-tar -I 'gzip -1' -cf "$DEST/opi5u-a14-hosttools.tar.gz" "\${HOST_PATHS[@]}"
+tar -I 'gzip -1' -cf "$DEST/opi5u-a14-hosttools.tar.gz" "${HOST_PATHS[@]}"
 for f in "$DEST"/*; do
   stat -c '%n | %s bytes' "$f"
   # GitHub Releases limit each individual asset to 2 GiB.
