@@ -1,6 +1,11 @@
 name: OPi5U A14 KernelSU Boot OTA (verification)
 
 on:
+  workflow_call:
+    inputs:
+      bootstrap_tag:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       bootstrap_tag:
@@ -20,6 +25,7 @@ jobs:
       - name: Check out pinned kernel source and KernelSU Next
         uses: actions/checkout@v4
         with:
+          ref: feature/kernelsu-next
           submodules: recursive
           persist-credentials: false
       - name: Install kernel build prerequisites
