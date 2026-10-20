@@ -188,17 +188,6 @@ jobs:
             grep -qx 'pre-device=opi'
           sha256sum cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
 
-      - name: Retain reusable cloud build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: opi5u-a14-ksunext-cloud-unqualified
-          path: |
-            cloud-output/Image
-            cloud-output/boot.img
-            cloud-output/opi5u-a14-boot-only.zip
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Publish signed OTA in established single-archive release format
         if: ${{ inputs.otatools_url != '' }}
         shell: bash
