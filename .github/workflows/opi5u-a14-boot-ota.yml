@@ -2,14 +2,10 @@ name: OPi5U A14 KernelSU Cloud Build
 
 on:
   workflow_dispatch:
-    inputs:
-      target_files_tag:
-        description: Pinned A14 target-files release
-        required: true
-        default: opi5u-a14-rkr8-target-files-v1
 
 env:
   GH_TOKEN: ${{ github.token }}
+  TARGET_FILES_TAG: opi5u-a14-rkr8-target-files-v1
   OTA_TOOLS_URL: https://github.com/t3st0st3r0n4s/FE-kernel-rockchip/releases/download/opi5u-a14-otatools-v1/otatools.zip
   OTA_TOOLS_SHA256: c30aa81a4abfa14e4f18c81e50036351525e3757666fe2d2d73795cbbe449f1c
   CLANG_SOURCE_COMMIT: 084bfeee4305d1572309b4ac279a4125f6c7fa5e
@@ -88,8 +84,6 @@ jobs:
 
       - name: Download pinned BOARD-qualified target-files
         shell: bash
-        env:
-          TARGET_FILES_TAG: ${{ inputs.target_files_tag }}
         run: |
           set -euo pipefail
           mkdir -p cloud-inputs
