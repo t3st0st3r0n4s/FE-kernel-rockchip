@@ -2,6 +2,13 @@ name: OPi5U A14 KernelSU Cloud Build
 
 on:
   workflow_call:
+    secrets:
+      OPI5U_A14_OTA_PK8_B64:
+        description: Base64 of original A14 testkey.pk8 signing key
+        required: false
+      OPI5U_A14_OTA_CERT_B64:
+        description: Base64 of matching original A14 testkey.x509.pem
+        required: false
     inputs:
       target_files_tag:
         type: string
@@ -182,20 +189,31 @@ jobs:
           echo "$GITHUB_WORKSPACE/otatools/bin" >> "$GITHUB_PATH"
           echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/otatools/lib64" >> "$GITHUB_ENV"
 
-      - name: Fetch public AOSP Android 14 development signing keys
+      - name: Restore original BOARD-qualified A14 OTA signing keys
         if: ${{ inputs.otatools_url != '' }}
         shell: bash
+        env:
+          OTA_PK8_BASE64: ${{ secrets.OPI5U_A14_OTA_PK8_B64 }}
+          OTA_CERT_BASE64: ${{ secrets.OPI5U_A14_OTA_CERT_B64 }}
         run: |
           set -euo pipefail
-          mkdir -p build/make/target/product/security
-          for extension in pk8 x509.pem; do
-            curl --fail --location --retry 3 \
-              "https://android.googlesource.com/platform/build/+/refs/tags/android-14.0.0_r40/target/product/security/testkey.$extension?format=TEXT" |
-              base64 --decode > "build/make/target/product/security/testkey.$extension"
-          done
-          openssl x509 -in build/make/target/product/security/testkey.x509.pem -noout -subject >/dev/null
-          openssl pkcs8 -inform DER -nocrypt \
-            -in build/make/target/product/security/testkey.pk8 >/dev/null
+          test -n "$OTA_PK8_BASE64"
+          test -n "$OTA_CERT_BASE64"
+          SIGNING_DIR=build/make/target/product/security
+          mkdir -p "$SIGNING_DIR"
+          umask 077
+          printf '%s' "$OTA_PK8_BASE64" | base64 --decode > "$SIGNING_DIR/testkey.pk8"
+          printf '%s' "$OTA_CERT_BASE64" | base64 --decode > "$SIGNING_DIR/testkey.x509.pem"
+
+          EXPECTED_CERT_SHA256=cf2ab3818595c4eda08cec72bbe39bc377a30b764a3eebde52536eae01808525
+          ACTUAL_CERT_SHA256="$(openssl x509 -in "$SIGNING_DIR/testkey.x509.pem" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test "$ACTUAL_CERT_SHA256" = "$EXPECTED_CERT_SHA256"
+
+          openssl pkcs8 -inform DER -nocrypt -in "$SIGNING_DIR/testkey.pk8" -out /dev/null
+          KEY_PUB_SHA256="$(openssl pkey -inform DER -in "$SIGNING_DIR/testkey.pk8" -pubout -outform DER | sha256sum | cut -d' ' -f1)"
+          CERT_PUB_SHA256="$(openssl x509 -in "$SIGNING_DIR/testkey.x509.pem" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | cut -d' ' -f1)"
+          test "$KEY_PUB_SHA256" = "$CERT_PUB_SHA256"
+          echo "Original A14 signing pair verified; certificate SHA256: $ACTUAL_CERT_SHA256"
 
       - name: Reproduce baseline boot and package updated Image
         if: ${{ inputs.otatools_url != '' }}
