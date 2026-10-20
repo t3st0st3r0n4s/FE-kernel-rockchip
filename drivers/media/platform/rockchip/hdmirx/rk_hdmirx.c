@@ -1687,7 +1687,7 @@ static int hdmirx_wait_lock_and_get_timing(struct rk_hdmirx_dev *hdmirx_dev)
 			hdmirx_phy_config(hdmirx_dev);
 
 		if (!tx_5v_power_present(hdmirx_dev)) {
-			v4l2_err(v4l2_dev, "%s HDMI pull out, return!\n", __func__);
+			//v4l2_err(v4l2_dev, "%s HDMI pull out, return!\n", __func__);
 			return -1;
 		}
 
@@ -3215,7 +3215,7 @@ static irqreturn_t hdmirx_dma_irq_handler(int irq, void *dev_id)
 
 static void hdmirx_audio_interrupts_setup(struct rk_hdmirx_dev *hdmirx_dev, bool en)
 {
-	dev_info(hdmirx_dev->dev, "%s: %d", __func__, en);
+	//dev_info(hdmirx_dev->dev, "%s: %d", __func__, en);
 	if (en) {
 		hdmirx_update_bits(hdmirx_dev, AVPUNIT_1_INT_MASK_N,
 				   DEFRAMER_VSYNC_THR_REACHED_MASK_N,

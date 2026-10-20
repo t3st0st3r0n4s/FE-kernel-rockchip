@@ -8,6 +8,11 @@
  * Copyright (c) 2004 Jon Smirl <jonsmirl@gmail.com>
  * Copyright (c) 2003-2004 Greg Kroah-Hartman <greg@kroah.com>
  * Copyright (c) 2003-2004 IBM Corp.
+ *
+ * Revision note r01:
+ * - FE A14 dynamic hotplug glue for sysfs status="detect"
+ * - Mirrors the delayed_event + output_poll_work pattern already used
+ *   in the FE Rockchip DRM stack without importing Orange-wide changes.
  */
 
 #include <linux/acpi.h>
@@ -18,6 +23,7 @@
 #include <linux/i2c.h>
 #include <linux/kdev_t.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
 
 #include <drm/drm_connector.h>
 #include <drm/drm_device.h>
@@ -158,6 +164,7 @@ static ssize_t status_store(struct device *device,
 	struct drm_connector *connector = to_drm_connector(device);
 	struct drm_device *dev = connector->dev;
 	enum drm_connector_force old_force;
+	bool detect = false;
 	int ret;
 
 	ret = mutex_lock_interruptible(&dev->mode_config.mutex);
@@ -166,16 +173,18 @@ static ssize_t status_store(struct device *device,
 
 	old_force = connector->force;
 
-	if (sysfs_streq(buf, "detect"))
+	if (sysfs_streq(buf, "detect")) {
 		connector->force = 0;
-	else if (sysfs_streq(buf, "on"))
+		detect = true;
+	} else if (sysfs_streq(buf, "on")) {
 		connector->force = DRM_FORCE_ON;
-	else if (sysfs_streq(buf, "on-digital"))
+	} else if (sysfs_streq(buf, "on-digital")) {
 		connector->force = DRM_FORCE_ON_DIGITAL;
-	else if (sysfs_streq(buf, "off"))
+	} else if (sysfs_streq(buf, "off")) {
 		connector->force = DRM_FORCE_OFF;
-	else
+	} else {
 		ret = -EINVAL;
+	}
 
 	if (old_force != connector->force || !connector->force) {
 		DRM_DEBUG_KMS("[CONNECTOR:%d:%s] force updated from %d to %d or reprobing\n",
@@ -186,6 +195,12 @@ static ssize_t status_store(struct device *device,
 		connector->funcs->fill_modes(connector,
 					     dev->mode_config.max_width,
 					     dev->mode_config.max_height);
+
+		if (detect) {
+			dev->mode_config.delayed_event = true;
+			if (dev->mode_config.poll_enabled)
+				schedule_delayed_work(&dev->mode_config.output_poll_work, 0);
+		}
 	}
 
 	mutex_unlock(&dev->mode_config.mutex);

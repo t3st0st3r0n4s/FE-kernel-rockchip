@@ -176,8 +176,8 @@
 };
 
 &display_subsystem {
-	clocks = <&hdptxphy_hdmi0>, <&hdptxphy_hdmi0>;
-	clock-names = "hdmi0_phy_pll", "hdmi1_phy_pll";
+	clocks = <&hdptxphy_hdmi0>;
+	clock-names = "hdmi0_phy_pll";
 };
 
 &gpu {
@@ -484,7 +484,8 @@
 			<0xf1	KEY_VOLUMEDOWN>,
 			<0xf3	KEY_VOLUMEUP>,
 			<0xae	KEY_MENU>,
-			<0xeb	KEY_LEFTMETA>,
+			<0xeb	KEY_RIGHTMETA>,
+			<0xcc	204>,
 			<0xaf	KEY_BACK>,
 			<0xf7	KEY_MODE>,
 			<0xe5	KEY_SYSRQ>,

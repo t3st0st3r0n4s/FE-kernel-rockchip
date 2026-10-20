@@ -46,7 +46,8 @@ dhd_wlan_set_power(int on, wifi_adapter_info_t *adapter)
 	int err = 0;
 
 	if (on) {
-		printf("======== PULL WL_REG_ON(%d) HIGH! ========\n", gpio_wl_reg_on);
+		printf("======== WL_REG_ON(%d) ON request ========\n", gpio_wl_reg_on);
+#ifndef CUSTOMER_HW_ROCKCHIP
 		if (gpio_wl_reg_on >= 0) {
 			err = gpio_direction_output(gpio_wl_reg_on, 1);
 			if (err) {
@@ -54,8 +55,11 @@ dhd_wlan_set_power(int on, wifi_adapter_info_t *adapter)
 				return -EIO;
 			}
 		}
-#ifdef CUSTOMER_HW_ROCKCHIP
+#else
+		/* Rockchip platform owns the rail in rfkill-wlan (shared Wi-Fi/BT manager). */
 		rockchip_wifi_power(1);
+#endif
+#ifdef BCMPCIE
 #ifdef BCMPCIE
 //		rk_pcie_power_on_atu_fixup();
 #endif
@@ -90,7 +94,8 @@ dhd_wlan_set_power(int on, wifi_adapter_info_t *adapter)
 		}
 #endif /* BCMPCIE */
 #endif /* BUS_POWER_RESTORE */
-		printf("======== PULL WL_REG_ON(%d) LOW! ========\n", gpio_wl_reg_on);
+		printf("======== WL_REG_ON(%d) OFF request ========\n", gpio_wl_reg_on);
+#ifndef CUSTOMER_HW_ROCKCHIP
 		if (gpio_wl_reg_on >= 0) {
 			err = gpio_direction_output(gpio_wl_reg_on, 0);
 			if (err) {
@@ -98,7 +103,8 @@ dhd_wlan_set_power(int on, wifi_adapter_info_t *adapter)
 				return -EIO;
 			}
 		}
-#ifdef CUSTOMER_HW_ROCKCHIP
+#else
+		/* Rockchip platform owns the rail in rfkill-wlan (shared Wi-Fi/BT manager). */
 		rockchip_wifi_power(0);
 #endif
 	}

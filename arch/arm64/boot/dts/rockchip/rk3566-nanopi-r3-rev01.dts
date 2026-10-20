@@ -64,47 +64,6 @@
 		status = "disabled";
 		compatible = "pwm-backlight";
 	};
-
-	vconn: vconn {
-		compatible = "rockchip,virtual-connector";
-		hdmi0-enable;
-		hdmi0-disconnected;
-		hdmi0-vp-id = <0>;
-		status = "okay";
-
-		/* 4 - 1280x720@60Hz 16:9 */
-		hdmi0_timing {
-			clock-frequency = <74250000>;
-			hactive = <1280>;
-			vactive = <720>;
-			hfront-porch = <110>;
-			hsync-len = <40>;
-			hback-porch = <220>;
-			vfront-porch = <5>;
-			vsync-len = <5>;
-			vback-porch = <20>;
-			hsync-active = <1>;
-			vsync-active = <1>;
-			de-active = <0>;
-			pixelclk-active = <0>;
-		};
-
-		ports {
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			port@0 {
-				reg = <0>;
-				#address-cells = <1>;
-				#size-cells = <0>;
-
-				vcon_in_vp0: endpoint@0 {
-					reg = <0>;
-					remote-endpoint = <&vp0_out_hdmi>;
-				};
-			};
-		};
-	};
 };
 
 &combphy1_usq {
@@ -357,20 +316,14 @@ dsi1_pwm: &pwm4 {
 	status = "okay";
 };
 
-&vop {
-	disable-win-move;
-};
-
 &vp0 {
-	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_SMART0)>;
-	rockchip,primary-plane = <ROCKCHIP_VOP2_SMART0>;
-	/delete-property/ cursor-win-id;
+	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0)>;
+	rockchip,primary-plane = <ROCKCHIP_VOP2_CLUSTER0>;
 };
 
 &vp1 {
-	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0)>;
+	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_ESMART0 | 1 << ROCKCHIP_VOP2_SMART0)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART0>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER0>;
 };
 
 &vp2 {
@@ -378,27 +331,17 @@ dsi1_pwm: &pwm4 {
 				1 << ROCKCHIP_VOP2_CLUSTER1 | 1 << ROCKCHIP_VOP2_ESMART1 |
 				1 << ROCKCHIP_VOP2_SMART1)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART1>;
-	cursor-win-id = <ROCKCHIP_VOP2_SMART1>;
 	status = "disabled";
 };
 
 &route_hdmi {
-	status = "disabled";
+	status = "okay";
 };
 
 &hdmi_in_vp0 {
-	status = "disabled";
-	/delete-property/ remote-endpoint;
-};
-
-&hdmi_sound {
-	status = "disabled";
+	status = "okay";
 };
 
 &hdmi {
-	status = "disabled";
-};
-
-&vp0_out_hdmi {
-	remote-endpoint = <&vcon_in_vp0>;
+	status = "okay";
 };

@@ -170,6 +170,8 @@ static int rfkill_rk_setup_gpio(struct platform_device *pdev,
 			LOG("Failed to get %s gpio.\n", gpio->name);
 			return -1;
 		}
+		/* BT releases shared rail (last OFF will actually turn it off) */
+		rk_wifi_bt_rail_put(RK_WIFI_BT_RAIL_USER_BT);
 	}
 
 	return 0;
@@ -310,7 +312,6 @@ static int rfkill_rk_set_power(void *data, bool blocked)
 	struct rfkill_rk_gpio *reset = &rfkill->pdata->reset_gpio;
 	struct rfkill_rk_gpio *rts = &rfkill->pdata->rts_gpio;
 	struct pinctrl *pinctrl = rfkill->pdata->pinctrl;
-	int wifi_power = 0;
 	bool toggle = false;
 
 	DBG("Enter %s\n", __func__);
@@ -323,6 +324,9 @@ static int rfkill_rk_set_power(void *data, bool blocked)
 	DBG("%s: toggle = %s\n", __func__, toggle ? "true" : "false");
 
 	if (!blocked) {
+		/* BT requests shared rail (keeps Wi-Fi rail on if shared) */
+		rk_wifi_bt_rail_get(RK_WIFI_BT_RAIL_USER_BT);
+
 		if (toggle) {
 			rfkill_set_wifi_bt_power(1);
 			msleep(100);
@@ -392,18 +396,7 @@ static int rfkill_rk_set_power(void *data, bool blocked)
 				msleep(20);
 			}
 		}
-		if (toggle) {
-			if (rfkill_get_wifi_power_state(&wifi_power)) {
-				LOG("%s: cannot get wifi power state!\n", __func__);
-				return -EPERM;
-			}
-			if (!wifi_power) {
-				LOG("%s: bt will set vbat to low\n", __func__);
-				rfkill_set_wifi_bt_power(0);
-			} else {
-				LOG("%s: bt shouldn't control the vbat\n", __func__);
-			}
-		}
+		/* Shared rail release is handled via rk_wifi_bt_rail_put() */
 	}
 
 	return 0;

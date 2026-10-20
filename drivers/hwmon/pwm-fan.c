@@ -59,12 +59,14 @@ struct pwm_fan_ctx {
 
 	unsigned int pwm_value;
 	unsigned int pwm_fan_state;
+	unsigned int pwm_fan_target_state;
 	unsigned int pwm_fan_max_state;
 	unsigned int *pwm_fan_cooling_levels;
 	struct thermal_cooling_device *cdev;
 	struct notifier_block thermal_nb;
 	struct thermal_trips *thermal_trips;
 	bool thermal_notifier_is_ok;
+	bool performance_mode;
 	unsigned int delay_ms;
 	ktime_t time_in_state;
 
@@ -403,10 +405,31 @@ static int pwm_fan_get_cur_state(struct thermal_cooling_device *cdev,
 	return 0;
 }
 
+static unsigned long pwm_fan_apply_performance_bias(struct pwm_fan_ctx *ctx,
+					       unsigned long state)
+{
+	if (!ctx->performance_mode)
+		return state;
+
+	/*
+	 * Keep thermal state 0 as real OFF.
+	 * Performance mode biases active cooling only; it must not turn the
+	 * fan on by itself when the thermal framework requests no cooling.
+	 */
+	if (state == 0)
+		return 0;
+
+	if (state < ctx->pwm_fan_max_state)
+		state++;
+
+	return state;
+}
+
 static int
 pwm_fan_set_cur_state(struct thermal_cooling_device *cdev, unsigned long state)
 {
 	struct pwm_fan_ctx *ctx = cdev->devdata;
+	unsigned long target_state;
 	int ret;
 
 	if (!ctx || (state > ctx->pwm_fan_max_state))
@@ -416,16 +439,19 @@ pwm_fan_set_cur_state(struct thermal_cooling_device *cdev, unsigned long state)
 	if (ctx->delay_ms > 0)
 		ctx->time_in_state = ktime_add_ms(ktime_get(), ctx->delay_ms);
 
-	if (state == ctx->pwm_fan_state)
+	ctx->pwm_fan_target_state = state;
+	target_state = pwm_fan_apply_performance_bias(ctx, state);
+
+	if (target_state == ctx->pwm_fan_state)
 		return 0;
 
-	ret = set_pwm(ctx, ctx->pwm_fan_cooling_levels[state]);
+	ret = set_pwm(ctx, ctx->pwm_fan_cooling_levels[target_state]);
 	if (ret) {
 		dev_err(&cdev->device, "Cannot set pwm!\n");
 		return ret;
 	}
 
-	ctx->pwm_fan_state = state;
+	ctx->pwm_fan_state = target_state;
 
 	return ret;
 }
@@ -551,6 +577,10 @@ static int pwm_fan_thermal_notifier_call(struct notifier_block *nb,
 	state = pwm_fan_temp_to_state(ctx, event_data->temp);
 	if (state > ctx->pwm_fan_max_state)
 		return NOTIFY_BAD;
+
+	ctx->pwm_fan_target_state = state;
+	state = pwm_fan_apply_performance_bias(ctx, state);
+
 	if (state == ctx->pwm_fan_state)
 		return NOTIFY_OK;
 
@@ -567,6 +597,47 @@ static int pwm_fan_thermal_notifier_call(struct notifier_block *nb,
 
 	return NOTIFY_OK;
 }
+
+static ssize_t performance_mode_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", ctx->performance_mode ? 1 : 0);
+}
+
+static ssize_t performance_mode_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
+	unsigned long state;
+	bool enable;
+	int ret;
+
+	ret = kstrtobool(buf, &enable);
+	if (ret)
+		return ret;
+
+	mutex_lock(&ctx->lock);
+	ctx->performance_mode = enable;
+	state = pwm_fan_apply_performance_bias(ctx, ctx->pwm_fan_target_state);
+	if (ctx->pwm_fan_cooling_levels) {
+		ret = __set_pwm(ctx, ctx->pwm_fan_cooling_levels[state]);
+		if (!ret)
+			ctx->pwm_fan_state = state;
+	} else {
+		ret = 0;
+	}
+	mutex_unlock(&ctx->lock);
+
+	if (ret)
+		return ret;
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(performance_mode);
 
 static int pwm_fan_register_thermal_notifier(struct device *dev,
 					     struct pwm_fan_ctx *ctx)
@@ -727,6 +798,7 @@ static int pwm_fan_probe(struct platform_device *pdev)
 		return ret;
 
 	ctx->pwm_fan_state = ctx->pwm_fan_max_state;
+	ctx->pwm_fan_target_state = 0;
 	if (IS_REACHABLE(CONFIG_ROCKCHIP_SYSTEM_MONITOR) &&
 	    of_find_property(dev->of_node, "rockchip,temp-trips", NULL)) {
 		ret = pwm_fan_register_thermal_notifier(dev, ctx);
@@ -752,6 +824,12 @@ static int pwm_fan_probe(struct platform_device *pdev)
 		ctx->cdev = cdev;
 	}
 
+	ret = device_create_file(dev, &dev_attr_performance_mode);
+	if (ret) {
+		dev_err(dev, "Failed to create performance_mode sysfs file: %d\n", ret);
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -763,6 +841,8 @@ static int pwm_fan_remove(struct platform_device *pdev)
 		ctx->thermal_notifier_is_ok = false;
 		rockchip_system_monitor_unregister_notifier(&ctx->thermal_nb);
 	}
+
+	device_remove_file(&pdev->dev, &dev_attr_performance_mode);
 
 	pwm_fan_switch_power(ctx, false);
 

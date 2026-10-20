@@ -21,6 +21,7 @@
 
 config BCMDHD
 	tristate "Broadcom FullMAC wireless cards support"
+	depends on CFG80211
 	default m
 	help
 	  This module adds support for wireless adapters based on

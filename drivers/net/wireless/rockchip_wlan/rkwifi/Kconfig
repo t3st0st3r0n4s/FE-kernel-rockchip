@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 config AP6XXX
 	tristate "ap6xxx wireless cards support"
-	depends on RFKILL_RK
-	select CFG80211
-	select MAC80211
+	depends on RFKILL_RK && CFG80211 && MAC80211
 	help
 	  This module adds support for wireless adapters based on
 	  Broadcom ap6xxx chipset.

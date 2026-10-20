@@ -240,16 +240,14 @@ kernel.img: Image
 	@echo '  Image:  kernel.img is ready'
 
 ifeq ($(CONFIG_VENDOR_FRIENDLYELEC),y)
-DTBS := rk3*-nanopi*-rev*.dtb
+DTBS := rk3*-orangepi*.dtb
 
 resource.img: dtbs $(LOGO) $(LOGO_KERNEL)
 	$(Q)$(srctree)/scripts/mkimg --dtb $(DTBS) --keep-dtb-name
 
-nanopi4-images: kernel.img resource.img
+opi-images: kernel.img resource.img
 
-nanopi5-images: nanopi4-images
-nanopi6-images: nanopi4-images
-PHONY += resource.img nanopi4-images nanopi5-images nanopi6-images
+PHONY += resource.img opi-images
 endif
 
 %.img: kernel.img

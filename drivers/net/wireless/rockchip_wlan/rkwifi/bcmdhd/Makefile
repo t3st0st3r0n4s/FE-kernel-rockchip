@@ -21,7 +21,7 @@
 #
 
 MODULE_NAME := bcmdhd
-CONFIG_AP6XXX ?= m
+CONFIG_AP6XXX ?= y
 
 #CONFIG_BCMDHD_SDIO := y
 #CONFIG_BCMDHD_PCIE := y
@@ -481,7 +481,8 @@ ifeq ($(CONFIG_AP6XXX),m)
 EXTRA_LDFLAGS += --strip-debug
 endif
 
-obj-$(CONFIG_AP6XXX) += $(MODULE_NAME).o
+#obj-$(CONFIG_AP6XXX) += $(MODULE_NAME).o
+obj-$(CONFIG_BCMDHD) += $(MODULE_NAME).o
 $(MODULE_NAME)-objs += $(DHDOFILES)
 ccflags-y := $(EXTRA_CFLAGS)
 

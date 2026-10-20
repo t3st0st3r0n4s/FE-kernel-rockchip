@@ -3,8 +3,6 @@ menuconfig WL_ROCKCHIP
 	tristate "Rockchip Wireless LAN support"
 	select WIRELESS_EXT
 	select WEXT_PRIV
-	select CFG80211
-	select MAC80211
 	help
 	  Enable compatible Wifi drivers for Rockchip platform.
 
@@ -29,8 +27,8 @@ config WIFI_GENERATE_RANDOM_MAC_ADDR
 	  Wifi generate random mac address and save to vendor storage for cob chip
 
 menuconfig BCMDHD
-	bool "Broadcom Wireless Device Driver Support"
-	default y
+	tristate "Broadcom Wireless Device Driver Support"
+	default m
 
 if BCMDHD
 source "drivers/net/wireless/rockchip_wlan/rkwifi/Kconfig"

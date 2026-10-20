@@ -46,6 +46,25 @@ struct rksdmmc_gpio_wifi_moudle {
 	struct clk *ext_clk;
 };
 
+
+/* Shared Wi-Fi/BT rail manager
+ *
+ * Guarantees: second ON is a no-op, last OFF turns rail off.
+ * Users: Wi-Fi (platform/rfkill/DHD) and Bluetooth rfkill.
+ */
+#define RK_WIFI_BT_RAIL_USER_WIFI 0x1
+#define RK_WIFI_BT_RAIL_USER_BT   0x2
+
+#if IS_REACHABLE(CONFIG_RFKILL_RK)
+int rk_wifi_bt_rail_get(unsigned int user);
+int rk_wifi_bt_rail_put(unsigned int user);
+int rk_wifi_bt_rail_get_state(int *rail_on, int *wifi_users, int *bt_users);
+#else
+static inline int rk_wifi_bt_rail_get(unsigned int user) { return -1; }
+static inline int rk_wifi_bt_rail_put(unsigned int user) { return -1; }
+static inline int rk_wifi_bt_rail_get_state(int *rail_on, int *wifi_users, int *bt_users) { return -1; }
+#endif
+
 #if IS_REACHABLE(CONFIG_RFKILL_RK)
 int rfkill_get_wifi_power_state(int *power);
 #else

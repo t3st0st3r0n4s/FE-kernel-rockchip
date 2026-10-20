@@ -31,6 +31,7 @@
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
 #include <linux/gpio.h>
+#include <linux/mutex.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <linux/skbuff.h>
 #include <linux/fb.h>
@@ -65,6 +66,148 @@ static struct rfkill_wlan_data *g_rfkill = NULL;
 static int power_set_time = 0;
 static int wifi_bt_vbat_state;
 static int wifi_power_state;
+
+/* Shared Wi-Fi/BT rail manager state */
+static DEFINE_MUTEX(rk_wifi_bt_rail_lock);
+static int rk_wifi_users;
+static int rk_bt_users;
+static bool rk_rail_is_on;
+
+static int __rk_wifi_bt_rail_apply_locked(bool on)
+{
+	struct rfkill_wlan_data *mrfkill = g_rfkill;
+	struct rksdmmc_gpio *poweron, *reset;
+	struct regulator *ldo = NULL;
+
+	if (!mrfkill || !mrfkill->pdata)
+		return -ENODEV;
+
+	/* Optional: keep rail on permanently once enabled */
+	if (!on && mrfkill->pdata->wifi_power_remain && power_set_time) {
+		LOG("%s: wifi_power_remain – keep rail on\n", __func__);
+		return 0;
+	}
+
+	if (on)
+		power_set_time++;
+
+	/* Always toggle VBAT if present (no DTS dependency) */
+	rfkill_set_wifi_bt_power(on ? 1 : 0);
+	msleep(20);
+
+	if (mrfkill->pdata->mregulator.power_ctrl_by_pmu) {
+		int ret;
+		char *ldostr = mrfkill->pdata->mregulator.pmu_regulator;
+		int level = mrfkill->pdata->mregulator.enable;
+
+		if (!ldostr)
+			return -EINVAL;
+		ldo = regulator_get(NULL, ldostr);
+		if (!ldo || IS_ERR(ldo)) {
+			LOG("%s: regulator_get(%s) failed\n", __func__, ldostr);
+			return -ENODEV;
+		}
+
+		if (on == level) {
+			regulator_set_voltage(ldo, 3000000, 3000000);
+			ret = regulator_enable(ldo);
+			if (ret)
+				LOG("%s: regulator_enable failed\n", __func__);
+		} else {
+			while (regulator_is_enabled(ldo) > 0) {
+				ret = regulator_disable(ldo);
+				if (ret)
+					LOG("%s: regulator_disable failed\n", __func__);
+			}
+		}
+		regulator_put(ldo);
+		msleep(100);
+		return 0;
+	}
+
+	poweron = &mrfkill->pdata->power_n;
+	reset = &mrfkill->pdata->reset_n;
+
+	if (on) {
+		if (gpio_is_valid(poweron->io)) {
+			gpio_direction_output(poweron->io, poweron->enable);
+			msleep(100);
+		}
+		if (gpio_is_valid(reset->io)) {
+			gpio_direction_output(reset->io, reset->enable);
+			msleep(100);
+		}
+		LOG("rail ON [GPIO%d-%d]\n", poweron->io, poweron->enable);
+	} else {
+		if (gpio_is_valid(poweron->io)) {
+			gpio_direction_output(poweron->io, !(poweron->enable));
+			msleep(100);
+		}
+		if (gpio_is_valid(reset->io)) {
+			gpio_direction_output(reset->io, !(reset->enable));
+			msleep(20);
+		}
+		LOG("rail OFF [GPIO%d-%d]\n", poweron->io, !poweron->enable);
+	}
+
+	return 0;
+}
+
+int rk_wifi_bt_rail_get(unsigned int user)
+{
+	int ret = 0;
+	mutex_lock(&rk_wifi_bt_rail_lock);
+	if (user & RK_WIFI_BT_RAIL_USER_WIFI)
+		rk_wifi_users++;
+	if (user & RK_WIFI_BT_RAIL_USER_BT)
+		rk_bt_users++;
+
+	if (!rk_rail_is_on && (rk_wifi_users + rk_bt_users) > 0) {
+		ret = __rk_wifi_bt_rail_apply_locked(true);
+		if (!ret)
+			rk_rail_is_on = true;
+	}
+	mutex_unlock(&rk_wifi_bt_rail_lock);
+	return ret;
+}
+EXPORT_SYMBOL(rk_wifi_bt_rail_get);
+
+int rk_wifi_bt_rail_put(unsigned int user)
+{
+	int ret = 0;
+	mutex_lock(&rk_wifi_bt_rail_lock);
+	if (user & RK_WIFI_BT_RAIL_USER_WIFI) {
+		if (rk_wifi_users > 0)
+			rk_wifi_users--;
+	}
+	if (user & RK_WIFI_BT_RAIL_USER_BT) {
+		if (rk_bt_users > 0)
+			rk_bt_users--;
+	}
+
+	if (rk_rail_is_on && (rk_wifi_users + rk_bt_users) == 0) {
+		ret = __rk_wifi_bt_rail_apply_locked(false);
+		if (!ret)
+			rk_rail_is_on = false;
+	}
+	mutex_unlock(&rk_wifi_bt_rail_lock);
+	return ret;
+}
+EXPORT_SYMBOL(rk_wifi_bt_rail_put);
+
+int rk_wifi_bt_rail_get_state(int *rail_on, int *wifi_users, int *bt_users)
+{
+	if (!rail_on || !wifi_users || !bt_users)
+		return -EINVAL;
+	mutex_lock(&rk_wifi_bt_rail_lock);
+	*rail_on = rk_rail_is_on ? 1 : 0;
+	*wifi_users = rk_wifi_users;
+	*bt_users = rk_bt_users;
+	mutex_unlock(&rk_wifi_bt_rail_lock);
+	return 0;
+}
+EXPORT_SYMBOL(rk_wifi_bt_rail_get_state);
+
 
 static const char wlan_name[] = "rkwifi";
 
@@ -227,114 +370,17 @@ EXPORT_SYMBOL(rfkill_get_wifi_power_state);
  *************************************************************************/
 int rockchip_wifi_power(int on)
 {
-	struct rfkill_wlan_data *mrfkill = g_rfkill;
-	struct rksdmmc_gpio *poweron, *reset;
-	struct regulator *ldo = NULL;
-	int bt_power = 0;
-	bool toggle = false;
-
 	LOG("%s: %d\n", __func__, on);
-
-	if (!mrfkill) {
-		LOG("%s: rfkill-wlan driver has not Successful initialized\n",
-		    __func__);
-		return -1;
-	}
-
-	if (mrfkill->pdata->wifi_power_remain && power_set_time) {
-		LOG("%s: wifi power is setted to be remain on.", __func__);
-		return 0;
-	}
-	power_set_time++;
-
-	if (!rfkill_get_bt_power_state(&bt_power, &toggle)) {
-		LOG("%s: toggle = %s\n", __func__, toggle ? "true" : "false");
-	}
-
-	if (mrfkill->pdata->mregulator.power_ctrl_by_pmu) {
-		int ret = -1;
-		char *ldostr;
-		int level = mrfkill->pdata->mregulator.enable;
-
-		ldostr = mrfkill->pdata->mregulator.pmu_regulator;
-		if (!ldostr)
-			return -1;
-		ldo = regulator_get(NULL, ldostr);
-		if (!ldo || IS_ERR(ldo)) {
-			LOG("\n\n\n%s get ldo error,please mod this\n\n\n",
-			    __func__);
-			return -1;
-		}
-		if (on == level) {
-			regulator_set_voltage(ldo, 3000000, 3000000);
-			LOG("%s: %s enabled\n", __func__, ldostr);
-			ret = regulator_enable(ldo);
-			if (ret)
-				LOG("ldo enable failed\n");
-			wifi_power_state = 1;
-			LOG("wifi turn on power.\n");
-		} else {
-			LOG("%s: %s disabled\n", __func__, ldostr);
-			while (regulator_is_enabled(ldo) > 0) {
-				ret = regulator_disable(ldo);
-				if (ret)
-					LOG("ldo disable failed\n");
-			}
-			wifi_power_state = 0;
-			LOG("wifi shut off power.\n");
-		}
-		regulator_put(ldo);
-		msleep(100);
-	} else {
-		poweron = &mrfkill->pdata->power_n;
-		reset = &mrfkill->pdata->reset_n;
-
-		if (on) {
-			if (toggle) {
-				rfkill_set_wifi_bt_power(1);
-				msleep(100);
-			}
-
-			if (gpio_is_valid(poweron->io)) {
-				gpio_direction_output(poweron->io, poweron->enable);
-				msleep(100);
-			}
-
-			if (gpio_is_valid(reset->io)) {
-				gpio_direction_output(reset->io, reset->enable);
-				msleep(100);
-			}
-
-			wifi_power_state = 1;
-			LOG("wifi turn on power [GPIO%d-%d]\n", poweron->io, poweron->enable);
-		} else {
-			if (gpio_is_valid(poweron->io)) {
-				printk("wifi power off\n");
-				gpio_direction_output(poweron->io, !(poweron->enable));
-				msleep(100);
-			}
-
-			if (gpio_is_valid(reset->io)) {
-				gpio_direction_output(reset->io, !(reset->enable));
-			}
-
-			wifi_power_state = 0;
-
-			if (!rfkill_get_bt_power_state(&bt_power, &toggle)) {
-				LOG("%s: toggle = %s\n", __func__, toggle ? "true" : "false");
-			}
-
-			if (toggle) {
-				if (!bt_power) {
-					LOG("%s: wifi will set vbat to low\n", __func__);
-					rfkill_set_wifi_bt_power(0);
-				} else {
-					LOG("%s: wifi shouldn't control the vbat\n", __func__);
-				}
-			}
-			LOG("wifi shut off power [GPIO%d-%d]\n", poweron->io, !poweron->enable);
-		}
-	}
+if (on) {
+		/* Wi-Fi (rfkill/platform/DHD) requests shared rail */
+		rk_wifi_bt_rail_get(RK_WIFI_BT_RAIL_USER_WIFI);
+		wifi_power_state = 1;
+		LOG("wifi request rail ON\n");
+} else {
+		rk_wifi_bt_rail_put(RK_WIFI_BT_RAIL_USER_WIFI);
+		wifi_power_state = 0;
+		LOG("wifi release rail\n");
+}
 
 	return 0;
 }

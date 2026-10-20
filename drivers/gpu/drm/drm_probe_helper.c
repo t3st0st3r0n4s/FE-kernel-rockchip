@@ -505,6 +505,7 @@ int drm_helper_probe_single_connector_modes(struct drm_connector *connector,
 	int count = 0, ret;
 	enum drm_connector_status old_status;
 	struct drm_modeset_acquire_ctx ctx;
+	unsigned int poll_delay = 0;
 
 	WARN_ON(!mutex_is_locked(&dev->mode_config.mutex));
 
@@ -561,6 +562,15 @@ retry:
 			      drm_get_connector_status_name(connector->status));
 
 		/*
+		 * Change of unknown to disconnected on boot should
+		 * considered as nothing.
+		 */
+		if (old_status == connector_status_unknown &&
+		    connector->status == connector_status_disconnected) {
+			poll_delay = msecs_to_jiffies(3000);
+		}
+
+		/*
 		 * The hotplug event code might call into the fb
 		 * helpers, and so expects that we do not hold any
 		 * locks. Fire up the poll struct instead, it will
@@ -570,7 +580,7 @@ retry:
 		if (dev->mode_config.poll_enabled)
 			mod_delayed_work(system_wq,
 					 &dev->mode_config.output_poll_work,
-					 0);
+					 poll_delay);
 	}
 
 	/* Re-enable polling in case the global poll config changed. */
