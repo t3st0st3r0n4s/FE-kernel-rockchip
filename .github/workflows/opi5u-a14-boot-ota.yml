@@ -7,17 +7,11 @@ on:
         description: Pinned A14 target-files release
         required: true
         default: opi5u-a14-rkr8-target-files-v1
-      otatools_url:
-        description: Pinned A14 otatools release (leave default for full build and OTA)
-        required: false
-        default: https://github.com/t3st0st3r0n4s/FE-kernel-rockchip/releases/download/opi5u-a14-otatools-v1/otatools.zip
-      otatools_sha256:
-        description: Checksum of pinned A14 otatools.zip
-        required: false
-        default: c30aa81a4abfa14e4f18c81e50036351525e3757666fe2d2d73795cbbe449f1c
 
 env:
   GH_TOKEN: ${{ github.token }}
+  OTA_TOOLS_URL: https://github.com/t3st0st3r0n4s/FE-kernel-rockchip/releases/download/opi5u-a14-otatools-v1/otatools.zip
+  OTA_TOOLS_SHA256: c30aa81a4abfa14e4f18c81e50036351525e3757666fe2d2d73795cbbe449f1c
   CLANG_SOURCE_COMMIT: 084bfeee4305d1572309b4ac279a4125f6c7fa5e
   CCACHE_MAXSIZE: 2G
   CCACHE_COMPRESS: 'true'
@@ -93,7 +87,6 @@ jobs:
           sha256sum cloud-output/Image
 
       - name: Download pinned BOARD-qualified target-files
-        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         env:
           TARGET_FILES_TAG: ${{ inputs.target_files_tag }}
@@ -106,21 +99,16 @@ jobs:
           unzip -tq cloud-inputs/opi5u-a14-baseline.zip
 
       - name: Restore checksum-pinned AOSP OTA tools cache
-        if: ${{ inputs.otatools_url != '' }}
         id: otatools-cache
         uses: actions/cache@v5
         with:
           path: |
             cloud-inputs/otatools.zip
             otatools
-          key: ${{ runner.os }}-opi5u-a14-otatools-${{ inputs.otatools_sha256 }}
+          key: ${{ runner.os }}-opi5u-a14-otatools-${{ env.OTA_TOOLS_SHA256 }}
 
       - name: Install checksum-pinned official AOSP OTA tools
-        if: ${{ inputs.otatools_url != '' }}
         shell: bash
-        env:
-          OTA_TOOLS_URL: ${{ inputs.otatools_url }}
-          OTA_TOOLS_SHA256: ${{ inputs.otatools_sha256 }}
         run: |
           set -euo pipefail
           [[ "$OTA_TOOLS_URL" == https://* ]]
@@ -137,7 +125,6 @@ jobs:
           echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/otatools/lib64" >> "$GITHUB_ENV"
 
       - name: Restore original BOARD-qualified A14 OTA signing keys
-        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         env:
           OTA_PK8_BASE64: ${{ secrets.OPI5U_A14_OTA_PK8_B64 }}
@@ -163,7 +150,6 @@ jobs:
           echo "Original A14 signing pair verified; certificate SHA256: $ACTUAL_CERT_SHA256"
 
       - name: Reproduce baseline boot and package updated Image
-        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -175,7 +161,6 @@ jobs:
             --output-target-files cloud-output/target-files.zip
 
       - name: Sign native partial A/B boot OTA
-        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -189,7 +174,6 @@ jobs:
           sha256sum cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
 
       - name: Publish signed OTA in established single-archive release format
-        if: ${{ inputs.otatools_url != '' }}
         shell: bash
         run: |
           set -euo pipefail
