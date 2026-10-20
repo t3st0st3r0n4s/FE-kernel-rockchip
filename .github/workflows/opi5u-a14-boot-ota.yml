@@ -33,6 +33,10 @@ on:
 env:
   GH_TOKEN: ${{ github.token }}
   CLANG_SOURCE_COMMIT: 084bfeee4305d1572309b4ac279a4125f6c7fa5e
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPRESS: 'true'
+  CCACHE_COMPRESSLEVEL: '5'
+  KBUILD_BUILD_TIMESTAMP: ''
 
 jobs:
   build:
@@ -48,9 +52,17 @@ jobs:
           persist-credentials: false
 
       - name: Install kernel build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev unzip curl
+        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev unzip curl ccache
+
+      - name: Restore pinned Google Clang from GitHub cache
+        id: clang-cache
+        uses: actions/cache@v5
+        with:
+          path: aosp-clang/clang-r487747c
+          key: ${{ runner.os }}-opi5u-a14-clang-r487747c-084bfeee4305d157-v1
 
       - name: Fetch official Android 14 Clang r487747c
+        if: steps.clang-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -61,8 +73,22 @@ jobs:
           test "$(git -C aosp-clang rev-parse HEAD)" = "$CLANG_SOURCE_COMMIT"
           git -C aosp-clang sparse-checkout set clang-r487747c
           test -x aosp-clang/clang-r487747c/bin/clang
+
+      - name: Verify cached or downloaded Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x aosp-clang/clang-r487747c/bin/clang
           echo "$GITHUB_WORKSPACE/aosp-clang/clang-r487747c/bin" >> "$GITHUB_PATH"
           aosp-clang/clang-r487747c/bin/clang --version | head -2
+
+      - name: Restore reusable kernel compilation cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-opi5u-a14-ccache-r487747c-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-opi5u-a14-ccache-r487747c-v1-
 
       - name: Compile OPi5U Android 14 kernel with built-in KernelSU
         shell: bash
@@ -70,9 +96,11 @@ jobs:
           set -euo pipefail
           git submodule status KernelSU-Next
           test "$(git -C KernelSU-Next rev-parse HEAD)" = "4c706b5938665866ebe16944a481a7b91e3396af"
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 opi5u_android_defconfig
+          ccache --zero-stats
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CC="ccache clang" opi5u_android_defconfig
           grep -qx 'CONFIG_KSU=y' .config
-          make -j4 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 Image
+          make -j4 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CC="ccache clang" Image
+          ccache --show-stats
           test -s arch/arm64/boot/Image
           mkdir -p cloud-output
           cp arch/arm64/boot/Image cloud-output/Image
