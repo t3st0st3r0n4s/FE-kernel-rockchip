@@ -82,8 +82,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s cloud-output/Image
-          stat -c '%n | %s bytes' cloud-output/Image
           sha256sum cloud-output/Image
+          # Reuse only the compiled kernel; rebuild OTA packaging outputs.
+          rm -f cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
 
       - name: Install kernel build prerequisites
         if: ${{ inputs.image_run_id == '' }}
