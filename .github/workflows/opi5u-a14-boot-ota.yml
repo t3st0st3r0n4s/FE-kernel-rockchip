@@ -2,6 +2,11 @@ name: OPi5U A14 KernelSU Cloud Build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - opi5u-a14
+    paths:
+      - .github/workflows/opi5u-a14-boot-ota.yml
 
 env:
   GH_TOKEN: ${{ github.token }}
