@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           git submodule status KernelSU-Next
           test -f KernelSU-Next/kernel/Kbuild
+          git -C KernelSU-Next fetch --depth=1 --tags origin
           ccache --zero-stats
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CC="ccache clang" opi5u_android_defconfig
           grep -qx 'CONFIG_KSU=y' .config
