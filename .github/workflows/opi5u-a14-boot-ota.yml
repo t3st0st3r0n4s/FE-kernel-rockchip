@@ -151,6 +151,16 @@ jobs:
           echo '8120b75a1ed7461c42a9b227e5ff63a7ce5e8d21a7ad764cb0a0ee0fbf054367  cloud-inputs/opi5u-a14-baseline.zip' | sha256sum --check
           unzip -tq cloud-inputs/opi5u-a14-baseline.zip
 
+      - name: Restore checksum-pinned AOSP OTA tools cache
+        if: ${{ inputs.otatools_url != '' }}
+        id: otatools-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            cloud-inputs/otatools.zip
+            otatools
+          key: ${{ runner.os }}-opi5u-a14-otatools-${{ inputs.otatools_sha256 }}
+
       - name: Install checksum-pinned official AOSP OTA tools
         if: ${{ inputs.otatools_url != '' }}
         shell: bash
@@ -162,9 +172,11 @@ jobs:
           [[ "$OTA_TOOLS_URL" == https://* ]]
           [[ "$OTA_TOOLS_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
           mkdir -p cloud-inputs otatools
-          curl --fail --location --retry 3 "$OTA_TOOLS_URL" --output cloud-inputs/otatools.zip
+          if [[ "${{ steps.otatools-cache.outputs.cache-hit }}" != "true" ]]; then
+            curl --fail --location --retry 3 "$OTA_TOOLS_URL" --output cloud-inputs/otatools.zip
+            unzip -q cloud-inputs/otatools.zip -d otatools
+          fi
           echo "$OTA_TOOLS_SHA256  cloud-inputs/otatools.zip" | sha256sum --check
-          unzip -q cloud-inputs/otatools.zip -d otatools
           test -x otatools/bin/ota_from_target_files
           test -x otatools/bin/mkbootimg
           echo "$GITHUB_WORKSPACE/otatools/bin" >> "$GITHUB_PATH"
