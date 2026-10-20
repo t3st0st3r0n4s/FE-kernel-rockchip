@@ -7,6 +7,10 @@ on:
         type: string
         required: false
         default: opi5u-a14-rkr8-target-files-v1
+      image_run_id:
+        type: string
+        required: false
+        default: ''
       otatools_url:
         type: string
         required: false
@@ -21,6 +25,10 @@ on:
         description: Pinned A14 target-files release
         required: true
         default: opi5u-a14-rkr8-target-files-v1
+      image_run_id:
+        description: Reuse Image artifact from successful GitHub run (no kernel rebuild)
+        required: false
+        default: ''
       otatools_url:
         description: Official Android 14 CI otatools.zip URL (omit for kernel-only build)
         required: false
@@ -43,6 +51,7 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Check out canonical kernel and pinned KernelSU Next
         uses: actions/checkout@v4
@@ -51,10 +60,30 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Restore previous successful GitHub kernel Image
+        if: ${{ inputs.image_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: opi5u-a14-ksunext-cloud-unqualified
+          run-id: ${{ inputs.image_run_id }}
+          github-token: ${{ github.token }}
+          path: cloud-output
+
+      - name: Verify restored kernel Image
+        if: ${{ inputs.image_run_id != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s cloud-output/Image
+          stat -c '%n | %s bytes' cloud-output/Image
+          sha256sum cloud-output/Image
+
       - name: Install kernel build prerequisites
+        if: ${{ inputs.image_run_id == '' }}
         run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev unzip curl ccache
 
       - name: Restore pinned Google Clang from GitHub cache
+        if: ${{ inputs.image_run_id == '' }}
         id: clang-cache
         uses: actions/cache@v5
         with:
@@ -62,7 +91,7 @@ jobs:
           key: ${{ runner.os }}-opi5u-a14-clang-r487747c-084bfeee4305d157-v1
 
       - name: Fetch official Android 14 Clang r487747c
-        if: steps.clang-cache.outputs.cache-hit != 'true'
+        if: ${{ inputs.image_run_id == '' && steps.clang-cache.outputs.cache-hit != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -75,6 +104,7 @@ jobs:
           test -x aosp-clang/clang-r487747c/bin/clang
 
       - name: Verify cached or downloaded Clang
+        if: ${{ inputs.image_run_id == '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -83,6 +113,7 @@ jobs:
           aosp-clang/clang-r487747c/bin/clang --version | head -2
 
       - name: Restore reusable kernel compilation cache
+        if: ${{ inputs.image_run_id == '' }}
         uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
@@ -91,6 +122,7 @@ jobs:
             ${{ runner.os }}-opi5u-a14-ccache-r487747c-v1-
 
       - name: Compile OPi5U Android 14 kernel with built-in KernelSU
+        if: ${{ inputs.image_run_id == '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -180,6 +212,7 @@ jobs:
           sha256sum cloud-output/boot.img cloud-output/opi5u-a14-boot-only.zip
 
       - name: Retain unqualified cloud build artifacts
+        if: ${{ inputs.image_run_id == '' || inputs.otatools_url != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: opi5u-a14-ksunext-cloud-unqualified
